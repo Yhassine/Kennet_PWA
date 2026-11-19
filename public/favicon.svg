@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#D95A1A" />
+      <stop offset="100%" stop-color="#B8430E" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="#121316" />
+  <circle cx="256" cy="256" r="220" fill="url(#grad)" opacity="0.15" />
+  <!-- Stylized K with roof/home shape -->
+  <path d="M160 120 V392" stroke="url(#grad)" stroke-width="48" stroke-linecap="round" />
+  <path d="M352 144 L208 260 L360 380" stroke="url(#grad)" stroke-width="48" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+  <circle cx="360" cy="144" r="24" fill="#D95A1A" />
+</svg>

@@ -1,0 +1,20 @@
+{
+  "name": "Kennet — Hóspedes & Estadias",
+  "short_name": "Kennet",
+  "description": "App PWA oficial para Hóspedes e Inquilinos: Pensões e Arrendamento de Casas em Moçambique.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0A0B0D",
+  "theme_color": "#C84714",
+  "orientation": "portrait-primary",
+  "lang": "pt-MZ",
+  "categories": ["travel", "lifestyle", "utilities"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
