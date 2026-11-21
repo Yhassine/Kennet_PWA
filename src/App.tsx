@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Header from "./components/Header";
 import BottomNav, { type NavTab } from "./components/BottomNav";
 import FilterTabs from "./components/FilterTabs";
@@ -15,18 +15,47 @@ import GuestAuthView from "./views/GuestAuthView";
 
 import { ACCOMMODATIONS } from "./data/accommodations";
 import type { Accommodation, Booking, CategoryId, GuestUser } from "./types/guest";
+import { supabase } from "./lib/supabaseClient";
+import { toGuestUser } from "./lib/guestUser";
 
 export default function App() {
-  // Current user state (defaults to Armando Mondlane demo guest)
-  const [currentUser, setCurrentUser] = useState<GuestUser | null>({
-    username: "armando.mondlane",
-    name: "Armando Mondlane",
-    cell: "841234567",
-    clientCode: "KEN-MZ-1044",
-    role: "guest",
-    status: "Ativo",
-    avatar: "AM",
-  });
+  const [currentUser, setCurrentUser] = useState<GuestUser | null>(null);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUser(
+        session?.user?.phone_confirmed_at ? toGuestUser(session.user) : null,
+      );
+      setIsLoadingAuth(false);
+    });
+
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (error) {
+        console.error("Falha ao carregar sessão do hóspede:", error.message);
+        setCurrentUser(null);
+      } else {
+        setCurrentUser(
+          data.session?.user?.phone_confirmed_at
+            ? toGuestUser(data.session.user)
+            : null,
+        );
+      }
+      setIsLoadingAuth(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    setLogoutError(null);
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error("Falha ao terminar sessão do hóspede:", error.message);
+      setLogoutError("Não foi possível terminar a sessão. Tente novamente.");
+    }
+  };
 
   // Navigation tab
   const [currentTab, setCurrentTab] = useState<NavTab>("explore");
@@ -113,12 +142,25 @@ export default function App() {
   });
 
   // If user is logged out, show dedicated Guest Auth view
+  if (isLoadingAuth) {
+    return (
+      <div className="min-h-screen bg-[#0A0B0D] text-white flex items-center justify-center">
+        <p role="status" className="text-sm text-neutral-300">A verificar a sua sessão...</p>
+      </div>
+    );
+  }
+
   if (!currentUser) {
-    return <GuestAuthView onLoginSuccess={(user) => setCurrentUser(user)} />;
+    return <GuestAuthView onLoginSuccess={setCurrentUser} />;
   }
 
   return (
     <div className="min-h-screen bg-[#0A0B0D] text-white flex flex-col pb-20">
+      {logoutError && (
+        <p role="alert" className="fixed top-3 left-3 right-3 z-50 rounded-lg border border-red-500/60 bg-red-950/90 p-3 text-center text-sm text-red-200">
+          {logoutError}
+        </p>
+      )}
       {/* Install PWA Prompt Banner */}
       <InstallPwaBanner />
 
@@ -179,7 +221,7 @@ export default function App() {
         {currentTab === "profile" && (
           <ProfileView
             user={currentUser}
-            onLogout={() => setCurrentUser(null)}
+            onLogout={() => void handleLogout()}
           />
         )}
       </main>

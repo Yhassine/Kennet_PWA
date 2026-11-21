@@ -5,7 +5,7 @@ import {
   Lock,
   Eye,
   EyeOff,
-  CheckCircle2,
+  AlertCircle,
   Loader2,
   Sparkles,
 } from "lucide-react";
@@ -17,49 +17,77 @@ import {
   validatePasswordConfirmation,
 } from "../utils/validation";
 import type { GuestUser } from "../types/guest";
+import { supabase } from "../lib/supabaseClient";
+import { toGuestUser } from "../lib/guestUser";
+import LegalDocsModal, { type LegalDocType } from "../components/LegalDocsModal";
 
 interface GuestAuthViewProps {
   onLoginSuccess: (user: GuestUser) => void;
 }
 
+const mapAuthErrorMessage = (errorMsg: string): string => {
+  if (errorMsg.includes("Failed to fetch") || errorMsg.includes("NetworkError")) {
+    return "Não foi possível conectar ao servidor Supabase. Verifique se o servidor está ativo e com as credenciais corretas.";
+  }
+  return errorMsg;
+};
+
 export default function GuestAuthView({ onLoginSuccess }: GuestAuthViewProps) {
   const [isRegister, setIsRegister] = useState(false);
+  const [pendingPhone, setPendingPhone] = useState<string | null>(null);
+  const [otp, setOtp] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
 
-  // -------------------------------------------------------------------------
-  // LOGIN STATE
-  // -------------------------------------------------------------------------
-  const [loginIdentifier, setLoginIdentifier] = useState("armando.mondlane");
-  const [loginPassword, setLoginPassword] = useState("Password123!");
+  const [loginIdentifier, setLoginIdentifier] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
   const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleLoginSubmit = (e: FormEvent) => {
+  const handleLoginSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    onLoginSuccess({
-      username: loginIdentifier.trim() || "hospede.kennet",
-      name: loginIdentifier.includes(".") ? "Armando Mondlane" : loginIdentifier,
-      cell: "841234567",
-      clientCode: "KEN-MZ-1044",
-      role: "guest",
-      status: "Ativo",
-      avatar: "AM",
-    });
+    setAuthError(null);
+    setAuthMessage(null);
+
+    const phone = validateTelefoneMZ(loginIdentifier);
+    if (!phone.isValid) {
+      setAuthError(phone.error);
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        phone: phone.formatted,
+        password: loginPassword,
+      });
+      if (error) {
+        setAuthError(mapAuthErrorMessage(error.message));
+        return;
+      }
+      if (!data.user) {
+        setAuthError("Não foi possível iniciar sessão. Tente novamente.");
+        return;
+      }
+      onLoginSuccess(toGuestUser(data.user));
+    } catch {
+      setAuthError("Ocorreu um erro inesperado ao iniciar sessão.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  // -------------------------------------------------------------------------
-  // REGISTER STATE (HÓSPEDE: NOME, CELULAR, SENHA - SEM EMAIL!)
-  // -------------------------------------------------------------------------
   const [regNome, setRegNome] = useState("");
   const [regCell, setRegCell] = useState("");
   const [regPassword, setRegPassword] = useState("");
   const [regConfirmPassword, setRegConfirmPassword] = useState("");
   const [regTermos, setRegTermos] = useState(false);
+  const [activeLegalDoc, setActiveLegalDoc] = useState<LegalDocType>(null);
 
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [showRegConfirmPassword, setShowRegConfirmPassword] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [regSuccess, setRegSuccess] = useState(false);
 
   const passwordStrength = checkPasswordStrength(regPassword);
 
@@ -93,8 +121,10 @@ export default function GuestAuthView({ onLoginSuccess }: GuestAuthViewProps) {
     setErrors((prev) => ({ ...prev, [field]: err }));
   };
 
-  const handleRegisterSubmit = (e: FormEvent) => {
+  const handleRegisterSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    setAuthError(null);
+    setAuthMessage(null);
 
     const errNome = validateField("nome", regNome);
     const errCell = validateField("cell", regCell);
@@ -116,11 +146,101 @@ export default function GuestAuthView({ onLoginSuccess }: GuestAuthViewProps) {
       return;
     }
 
+    const phone = validateTelefoneMZ(regCell);
+    if (!phone.isValid) return;
+
     setIsSubmitting(true);
-    setTimeout(() => {
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        phone: phone.formatted,
+        password: regPassword,
+        options: {
+          data: {
+            nome: regNome.trim(),
+            telefone: phone.formatted,
+            tipo_usuario: "hospede",
+            termos_aceites: regTermos,
+            termos_versao: "1.0",
+          },
+        },
+      });
+
+      if (error) {
+        setAuthError(mapAuthErrorMessage(error.message));
+        return;
+      }
+
+      if (data.session && data.user?.phone_confirmed_at) {
+        onLoginSuccess(toGuestUser(data.user));
+        return;
+      }
+
+      if (data.session) {
+        const { error: signOutError } = await supabase.auth.signOut();
+        if (signOutError) {
+          setAuthError("A confirmação por SMS não está ativa. A conta não foi iniciada; contacte o suporte.");
+          return;
+        }
+      }
+      setPendingPhone(phone.formatted);
+      setAuthMessage("Enviámos um código SMS para confirmar o seu número.");
+    } catch {
+      setAuthError("Ocorreu um erro inesperado ao criar a conta.");
+    } finally {
       setIsSubmitting(false);
-      setRegSuccess(true);
-    }, 900);
+    }
+  };
+
+  const handleVerifyOtp = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!pendingPhone) return;
+
+    setAuthError(null);
+    setAuthMessage(null);
+    setIsSubmitting(true);
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        phone: pendingPhone,
+        token: otp.trim(),
+        type: "sms",
+      });
+      if (error) {
+        setAuthError(mapAuthErrorMessage(error.message));
+        return;
+      }
+      if (!data.user || !data.user.phone_confirmed_at) {
+        setAuthError("O número ainda não foi confirmado. Verifique o código e tente novamente.");
+        return;
+      }
+      onLoginSuccess(toGuestUser(data.user));
+    } catch {
+      setAuthError("Ocorreu um erro inesperado ao confirmar o número.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (!pendingPhone) return;
+
+    setAuthError(null);
+    setAuthMessage(null);
+    setIsSubmitting(true);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "sms",
+        phone: pendingPhone,
+      });
+      if (error) {
+        setAuthError(mapAuthErrorMessage(error.message));
+        return;
+      }
+      setAuthMessage("Enviámos um novo código SMS.");
+    } catch {
+      setAuthError("Ocorreu um erro inesperado ao reenviar o código.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -166,18 +286,30 @@ export default function GuestAuthView({ onLoginSuccess }: GuestAuthViewProps) {
             </div>
 
             <form onSubmit={handleLoginSubmit}>
+              {authError && !isRegister && (
+                <div role="alert" className="mb-4 p-3 rounded-lg bg-red-950/70 border border-red-500/60 text-red-300 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                  <span>{authError}</span>
+                </div>
+              )}
+              {authMessage && !isRegister && (
+                <p role="status" className="mb-4 text-xs text-emerald-300">{authMessage}</p>
+              )}
               <div className="auth-underline-group group">
                 <div className="relative flex items-center">
                   <User className="w-4 h-4 text-neutral-400 group-focus-within:text-white transition-colors absolute left-0 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
-                    type="text"
-                    id="login-username"
-                    name="username"
+                    type="tel"
+                    id="login-phone"
+                    name="phone"
                     className="auth-underline-input auth-input !pl-7 w-full"
-                    placeholder="Username ou Celular (+258)"
+                    placeholder="Telemóvel (+258)"
                     value={loginIdentifier}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) => setLoginIdentifier(e.target.value)}
-                    autoComplete="username"
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                      setLoginIdentifier(maskTelefoneMZ(e.target.value));
+                      setAuthError(null);
+                    }}
+                    autoComplete="tel"
                     required
                   />
                 </div>
@@ -193,7 +325,10 @@ export default function GuestAuthView({ onLoginSuccess }: GuestAuthViewProps) {
                     className="auth-underline-input auth-input !pl-7 !pr-8 w-full"
                     placeholder="Palavra-passe"
                     value={loginPassword}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) => setLoginPassword(e.target.value)}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                      setLoginPassword(e.target.value);
+                      setAuthError(null);
+                    }}
                     autoComplete="current-password"
                     required
                   />
@@ -209,8 +344,8 @@ export default function GuestAuthView({ onLoginSuccess }: GuestAuthViewProps) {
                 </div>
               </div>
 
-              <button type="submit" className="auth-pill-btn" id="btn-login-submit">
-                Entrar no Kennet
+              <button type="submit" className="auth-pill-btn" id="btn-login-submit" disabled={isSubmitting}>
+                {isSubmitting ? "A iniciar sessão..." : "Entrar no Kennet"}
               </button>
             </form>
 
@@ -235,34 +370,70 @@ export default function GuestAuthView({ onLoginSuccess }: GuestAuthViewProps) {
               <h1 className="auth-main-title !mb-6">Registo</h1>
             </div>
 
-            {regSuccess ? (
-              <div className="bg-emerald-950/70 border border-emerald-500/50 rounded-2xl p-6 text-center space-y-4 animate-in fade-in duration-300">
-                <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto" />
-                <h3 className="text-xl font-bold text-white font-['Outfit']">Conta Criada!</h3>
-                <p className="text-sm text-neutral-300 leading-relaxed">
-                  Bem-vindo à comunidade Kennet. A sua conta de hóspede foi configurada com sucesso.
-                </p>
+            {pendingPhone ? (
+              <div className="space-y-4 animate-in fade-in duration-300">
+                <div className="text-center space-y-2">
+                  <Phone className="w-10 h-10 text-[#D95A1A] mx-auto" />
+                  <h3 className="text-xl font-bold text-white font-['Outfit']">Confirme o seu telemóvel</h3>
+                  <p className="text-sm text-neutral-300 leading-relaxed">
+                    Introduza o código enviado por SMS para <strong>{pendingPhone}</strong>.
+                  </p>
+                </div>
+                {authError && (
+                  <div role="alert" className="p-3 rounded-lg bg-red-950/70 border border-red-500/60 text-red-300 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                    <span>{authError}</span>
+                  </div>
+                )}
+                {authMessage && <p role="status" className="text-xs text-emerald-300">{authMessage}</p>}
+                <form onSubmit={handleVerifyOtp} className="space-y-3">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    aria-label="Código SMS"
+                    className="auth-underline-input auth-input w-full text-center tracking-[0.4em]"
+                    placeholder="Código de 6 dígitos"
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    required
+                  />
+                  <button type="submit" className="auth-pill-btn w-full" disabled={isSubmitting || otp.length !== 6}>
+                    {isSubmitting ? "A confirmar..." : "Confirmar número"}
+                  </button>
+                </form>
                 <button
                   type="button"
-                  className="auth-pill-btn mt-2"
+                  className="w-full text-sm text-[#D95A1A] hover:underline disabled:opacity-50"
+                  onClick={() => void handleResendOtp()}
+                  disabled={isSubmitting}
+                >
+                  Reenviar código SMS
+                </button>
+                <button
+                  type="button"
+                  className="w-full text-xs text-neutral-400 hover:text-white"
                   onClick={() => {
-                    setRegSuccess(false);
-                    onLoginSuccess({
-                      username: regNome.trim().toLowerCase().replace(/\s+/g, "."),
-                      name: regNome,
-                      cell: regCell,
-                      clientCode: "KEN-MZ-2026",
-                      role: "guest",
-                      status: "Ativo",
-                      avatar: regNome.slice(0, 2).toUpperCase(),
-                    });
+                    setPendingPhone(null);
+                    setOtp("");
+                    setAuthError(null);
+                    setAuthMessage(null);
                   }}
                 >
-                  Aceder ao Aplicativo
+                  Voltar ao registo
                 </button>
               </div>
             ) : (
               <form onSubmit={handleRegisterSubmit} noValidate>
+                {authError && isRegister && (
+                  <div role="alert" className="mb-4 p-3 rounded-lg bg-red-950/70 border border-red-500/60 text-red-300 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                    <span>{authError}</span>
+                  </div>
+                )}
+                {authMessage && isRegister && (
+                  <p role="status" className="mb-4 text-xs text-emerald-300">{authMessage}</p>
+                )}
                 {/* Nome Completo */}
                 <div className="auth-underline-group group">
                   <div className="relative flex items-center">
@@ -376,22 +547,37 @@ export default function GuestAuthView({ onLoginSuccess }: GuestAuthViewProps) {
                   )}
                 </div>
 
-                {/* Termos de Uso */}
+                {/* Termos de Uso (US-014-T2) */}
                 <div className="auth-underline-group !mb-4">
                   <label className="flex items-start gap-2.5 text-xs text-neutral-300 cursor-pointer select-none">
                     <input
                       type="checkbox"
+                      id="guest-reg-termos"
                       checked={regTermos}
                       onChange={(e: ChangeEvent<HTMLInputElement>) => {
                         setRegTermos(e.target.checked);
                         handleBlur("termos", e.target.checked);
                       }}
-                      className="mt-0.5 accent-[#D95A1A]"
+                      className="mt-0.5 accent-[#D95A1A] cursor-pointer"
+                      aria-required="true"
                     />
                     <span>
                       Concordo com os{" "}
-                      <span className="text-[#D95A1A] hover:underline">Termos de Uso</span> e{" "}
-                      <span className="text-[#D95A1A] hover:underline">Política de Privacidade</span>.
+                      <button
+                        type="button"
+                        onClick={() => setActiveLegalDoc("termos")}
+                        className="text-[#D95A1A] hover:underline font-medium focus:outline-none"
+                      >
+                        Termos de Uso
+                      </button>{" "}
+                      e a{" "}
+                      <button
+                        type="button"
+                        onClick={() => setActiveLegalDoc("privacidade")}
+                        className="text-[#D95A1A] hover:underline font-medium focus:outline-none"
+                      >
+                        Política de Privacidade
+                      </button>.
                     </span>
                   </label>
                   {errors.termos && touched.termos && (
@@ -429,6 +615,11 @@ export default function GuestAuthView({ onLoginSuccess }: GuestAuthViewProps) {
           </div>
         </div>
       </div>
+
+      <LegalDocsModal
+        docType={activeLegalDoc}
+        onClose={() => setActiveLegalDoc(null)}
+      />
     </div>
   );
 }

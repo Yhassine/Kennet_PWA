@@ -7,8 +7,8 @@ Aplicativo Web Progressivo (PWA) dedicado exclusivamente aos **Hóspedes e Inqui
 ## 🚀 Funcionalidades Exclusivas para Hóspedes
 
 1. **Autenticação Direcionada (Hóspedes)**:
-   - Início de sessão com Username ou Celular (+258) e Senha.
-   - Registo simplificado apenas com **Nome, Celular e Senha** (sem necessidade de e-mail).
+   - Início de sessão no Supabase com Celular (+258) e Senha.
+   - Registo simplificado apenas com **Nome, Celular e Senha** (sem necessidade de e-mail), seguido de confirmação do telefone por SMS.
    - Transição contínua fluida liquid morph (preto e laranja).
    - Suporte a código de cliente único: `KEN-MZ-XXXX`.
 
@@ -40,6 +40,7 @@ Aplicativo Web Progressivo (PWA) dedicado exclusivamente aos **Hóspedes e Inqui
 - **Estilos**: Tailwind CSS v4 + Design System Kennet
 - **Ícones**: Lucide React
 - **Backend / Auth**: Supabase Client
+- **Confirmação**: Supabase Phone Auth com código OTP por SMS
 
 ---
 
@@ -50,5 +51,7 @@ cd kenneth-guest-pwa
 npm install
 npm run dev
 ```
+
+Before starting, copy `.env.example` to `.env.local` and set the Supabase URL and anon key.
 
 A aplicação estará disponível em `http://localhost:5174`.
