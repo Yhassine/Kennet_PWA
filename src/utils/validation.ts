@@ -23,6 +23,43 @@ export function validateNome(nome: string): string | null {
   return null;
 }
 
+/**
+ * Aplica máscara de formatação moçambicana em tempo real (+258 / 8X XXX XXXX)
+ * US-013-T2 / RF-AUT-04
+ */
+export function maskTelefoneMZ(raw: string): string {
+  if (!raw) return "";
+
+  const trimmed = raw.trim();
+  const startsWithPlus258 = trimmed.startsWith("+258");
+  const startsWith258 = !startsWithPlus258 && trimmed.startsWith("258") && trimmed.replace(/\D/g, "").length > 9;
+
+  let digits = raw.replace(/\D/g, "");
+
+  let prefix = "";
+  if (startsWithPlus258 || startsWith258) {
+    prefix = "+258 ";
+    if (digits.startsWith("258")) {
+      digits = digits.slice(3);
+    }
+  } else if (trimmed.startsWith("+")) {
+    prefix = "+";
+  }
+
+  digits = digits.slice(0, 9);
+
+  let formattedDigits = "";
+  if (digits.length <= 2) {
+    formattedDigits = digits;
+  } else if (digits.length <= 5) {
+    formattedDigits = `${digits.slice(0, 2)} ${digits.slice(2)}`;
+  } else {
+    formattedDigits = `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`;
+  }
+
+  return `${prefix}${formattedDigits}`.trim();
+}
+
 export function validateTelefoneMZ(rawPhone: string): TelefoneValidationResult {
   if (!rawPhone || typeof rawPhone !== "string") {
     return {

@@ -12,6 +12,7 @@ import {
 import {
   validateNome,
   validateTelefoneMZ,
+  maskTelefoneMZ,
   checkPasswordStrength,
   validatePasswordConfirmation,
 } from "../utils/validation";
@@ -288,9 +289,10 @@ export default function GuestAuthView({ onLoginSuccess }: GuestAuthViewProps) {
                     <input
                       type="tel"
                       className="auth-underline-input auth-input !pl-7 w-full"
-                      placeholder="Celular (+258 84/85/86/87)"
+                      placeholder="84 123 4567 (+258)"
+                      maxLength={16}
                       value={regCell}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => setRegCell(e.target.value)}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => setRegCell(maskTelefoneMZ(e.target.value))}
                       onBlur={() => handleBlur("cell", regCell)}
                       required
                     />
